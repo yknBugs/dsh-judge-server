@@ -192,6 +192,18 @@ python server.py --analyzer ../python-command-inspector
 工具名直接映射方言，命令取 `command`、`cmd` 或 `script` 参数。命令文本和工具名明显不一致时
 （例如 bash 工具收到 PowerShell 命令），会额外报一条 `[注意]`，然后继续分析。
 
+#### 未知命令的两档
+
+`unknown-command` 有 `[提示]` 和 `[警告]` 两档：
+
+- `[提示] 包含未知命令 frobnicate。`：命令确实是一条命令，只是判定器没有它的行为模型。
+- `[警告] 命令位置上的 print(hello) 看上去不像一个命令，检查引号闭合的位置。`：命令位置上的
+  文本不像命令名（`"print(hello)"`、`"llama cpp"`），通常意味着引号提前闭合，后面的残句被当成了
+  命令名。
+
+后者是 `HIGH`：默认 `--skip-safe` 和 `--report-warning` 下都会 `ask`，只有 `--approve-all`
+才会自动放行。分析器的 `name_pattern` 只留在 `data` 里供排错，不改变卡片句子。
+
 ### write / edit
 
 两者都先检查目标路径：

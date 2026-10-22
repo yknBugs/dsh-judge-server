@@ -1917,12 +1917,33 @@ def w_sql_drop_object(f: Finding) -> str:
 
 
 def w_unknown_command(f: Finding) -> str:
-    """unknown-command"""
-    if f.tool_name:
-        if f.get("command_resolved"):
-            return f"包含未知命令 {f.tool_name}。"
-        else:
-            return f"命令 {f.tool_name} 的行为依赖于展开结果。"
+    """unknown-command（LOW / HIGH 两档）
+
+    * `LOW` —— 命令**确实是**一条命令，只是分析器没建模它的行为（`frobnicate --all`）；
+    * `HIGH` —— 命令位置上的**文本根本不像命令名**（`"print(hello)"`、`"llama cpp"`）。这几乎
+      总是**引号没写对**：引号提前闭合，后面那截残句被当成了命令名。分析器给的
+      `data.reason` 是 `suspicious_command_name`。
+
+    两档必须说不同的话：`[警告] 包含未知命令 print(hello)。` 和 `[提示] 包含未知命令 frobnicate。`
+    除了标签一模一样，读者看不出前者其实是"你的命令写坏了"——而这正是这条 HIGH 存在的理由。
+
+    **HIGH 不再按 `name_pattern` 细分。** 空格、语法字符、控制字符、无名字符听起来像四种毛病，
+    但对读者只有一件事要做：检查引号闭合的位置。分成四句只会让卡片的长短随输入抖动。分析器仍然
+    在 `data.name_pattern` 里给这个分类（排错时有用），判定器只是不用它组织句子。
+    """
+    name = f.tool_name
+    if name and f.get("reason") == "suspicious_command_name":
+        return f"命令位置上的 {name} 看上去不像一个命令，检查引号闭合的位置。"
+    resolved = f.get("command_resolved")
+    # 字段**缺失**不能当成"未解析"：那会白白丢掉一个已知的命令名。只有明确的 False 才算未解析。
+    if name and (resolved is None or resolved):
+        return f"包含未知命令 {name}。"
+    # 命令名来自展开：知道是哪个变量就写出来（`variables` 里有），否则只说到"取决于展开"。
+    names = f.list(f.get("variables"))
+    if names:
+        return f"命令名取决于变量 {names} 的展开结果，无法确定要执行什么。"
+    if name:
+        return "命令名取决于展开结果，无法确定要执行什么。"
     return "包含未知命令。"
 
 

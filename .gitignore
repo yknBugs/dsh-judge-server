@@ -1,0 +1,40 @@
+# Python 缓存与构建产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# 测试用例与开发探针不随仓库发布，只提交服务器本体
+tests/
+pytest.ini
+tools/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 运行日志：--logging 会把完整请求体（命令、路径、session id）写进 log/，
+# 属于本机审计数据，不进版本库。
+log/
+*.log
+
+# 本地凭据与环境
+.env
+.env.*
+!.env.example
+secrets.env
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

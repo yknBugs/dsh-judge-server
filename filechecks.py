@@ -290,19 +290,22 @@ def check_write(path: str, args: dict[str, Any], cwd: str, workspace: str = "") 
     kind, problem, existing = _probe_path(target)
     if problem:
         # 查不到状态：既不敢说"会覆盖"，也不敢说"是新建"。**明说不知道**，别静默放行。
-        report.add("write-target-unreadable", "MEDIUM",
+        report.add("write-target-unreadable", "LOW",
                    {"target": path_text, "reason": problem, "check": "write"})
     elif kind == DIRECTORY:
-        report.add("write-target-is-directory", "MEDIUM", {"target": path_text, "check": "write"})
+        report.add("write-target-is-directory", "LOW", {"target": path_text, "check": "write"})
     elif kind == FILE:
         report.add("overwrite-existing-file", "LOW",
                    {"target": path_text, "existing_bytes": existing, "check": "write"})
 
-    if isinstance(content, str):
-        written = len(content.encode("utf-8"))
-        report.add("write-size", "LOW",
-                   {"target": path_text, "written_bytes": written,
-                    "existing_bytes": existing if kind == FILE else None, "check": "write"})
+    if isinstance(content, str) and kind != DIRECTORY:
+        if kind in {ABSENT, FILE}:
+            written = len(content.encode("utf-8"))
+            report.add("write-size", "LOW",
+                       {"target": path_text, "written_bytes": written,
+                        "existing_bytes": existing if kind == FILE else None, "check": "write"})
+        # 目标状态未知或不是普通文件时，内容仍要检查（写失败也不能漏掉危险内容），
+        # 但不能说“将创建新文件”：那条大小陈述只对确认不存在/已存在的普通文件成立。
         _analyse(path_text, target, content, report, boundary)
     return report
 
@@ -328,15 +331,15 @@ def check_edit(path: str, args: dict[str, Any], cwd: str, workspace: str = "") -
     kind, problem, _existing = _probe_path(target)
     if problem:
         # 查不到状态，就**不能说"不存在"**：`edit-target-missing` 只在真正确认没有时才发。
-        report.add("edit-target-unreadable", "MEDIUM",
+        report.add("edit-target-unreadable", "LOW",
                    {"target": path_text, "reason": problem, "check": "edit"})
         return report
     if kind == DIRECTORY:
-        report.add("write-target-is-directory", "MEDIUM", {"target": path_text, "check": "edit"})
+        report.add("write-target-is-directory", "LOW", {"target": path_text, "check": "edit"})
         return report
     if kind != FILE:
         # `ABSENT` 或 `OTHER`（设备、管道…）：都不是能编辑的普通文件。
-        report.add("edit-target-missing", "MEDIUM", {"target": path_text, "check": "edit"})
+        report.add("edit-target-missing", "LOW", {"target": path_text, "check": "edit"})
         return report
 
     text, problem = _read_text(target)
@@ -344,13 +347,13 @@ def check_edit(path: str, args: dict[str, Any], cwd: str, workspace: str = "") -
         report.add("edit-target-not-utf8", "MEDIUM", {"target": path_text, "check": "edit"})
         return report
     if text is None:
-        report.add("edit-target-unreadable", "MEDIUM",
+        report.add("edit-target-unreadable", "LOW",
                    {"target": path_text, "reason": problem, "check": "edit"})
         return report
 
     original_bytes = len(text.encode("utf-8"))
     if old == "":
-        report.add("edit-empty-fragment", "MEDIUM", {"target": path_text, "check": "edit"})
+        report.add("edit-empty-fragment", "LOW", {"target": path_text, "check": "edit"})
         return report
 
     occurrences = text.count(old)
@@ -360,12 +363,15 @@ def check_edit(path: str, args: dict[str, Any], cwd: str, workspace: str = "") -
     if old == new:
         report.add("edit-no-change", "LOW", counts)
     if occurrences == 0:
-        report.add("edit-fragment-missing", "MEDIUM", counts)
+        report.add("edit-fragment-missing", "LOW", counts)
         return report
     if occurrences > 1:
-        report.add("edit-fragment-ambiguous", "MEDIUM", counts)
+        report.add("edit-fragment-ambiguous", "LOW", counts)
 
-    updated = text.replace(old, new, 1)
+    # The edit tool replaces every occurrence, not just the first. Model the
+    # whole result so the byte delta and content checks describe what actually
+    # happens.
+    updated = text.replace(old, new)
     after_bytes = len(updated.encode("utf-8"))
     report.add("edit-size-change", "LOW",
                {**counts, "before_bytes": original_bytes, "after_bytes": after_bytes,

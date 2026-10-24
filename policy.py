@@ -271,14 +271,41 @@ def _posix_cwd(cwd: str) -> str:
     return cwd if cwd.startswith("/") else "/"
 
 
-def _windows_cwd(cwd: str) -> str:
-    """A cwd the powershell/cmd frontends accept."""
-    return cwd if (len(cwd) >= 2 and cwd[1] == ":") else "C:\\"
+def _windows_cwd(cwd: str, *, allow_posix: bool = False) -> str:
+    """A cwd the powershell/cmd frontends accept.
+
+    PowerShell Core runs on Linux and uses POSIX paths, so a POSIX cwd is valid
+    there. CMD is Windows-only and requires a drive path; when it has none, a
+    synthetic ``C:\\`` keeps the lexical analysis usable. The choice follows the
+    dialect, not the host platform.
+    """
+    if len(cwd) >= 2 and cwd[1] == ":":
+        return cwd
+    if allow_posix and cwd.startswith("/"):
+        return cwd
+    return "C:\\"
+
+
+def _call_cwd(args: dict, cwd: str) -> str:
+    """The directory this particular call actually runs in.
+
+    Shell tools accept their own ``workdir``. The session ``cwd`` only says where
+    the agent currently is; the tool may run the command somewhere else. Resolving
+    relative paths against the session cwd then points at the wrong tree — which
+    shows up both as a false "does not exist" and, more seriously, as a false
+    "inside the workspace" for a workdir outside it.
+    """
+    workdir = args.get("workdir") or args.get("cwd")
+    if isinstance(workdir, str) and workdir.strip():
+        value = workdir.strip()
+        return value if is_absolute_path(value) else resolve_path(value, cwd)
+    return cwd
 
 
 def _shell_decision(tool: str, args: dict, cwd: str, workspace: str = "",
                     auto_approve: bool = False) -> Decision:
     boundary = workspace or cwd
+    call_cwd = _call_cwd(args, cwd)
     dialect = shell_dialect(tool) or "bash"
     command = args.get("command") or args.get("cmd") or args.get("script") or ""
     if not isinstance(command, str) or not command.strip():
@@ -301,12 +328,13 @@ def _shell_decision(tool: str, args: dict, cwd: str, workspace: str = "",
     # filesystem, so it is turned off and the lexical analysis stands on its own.
     evidence = True
     if dialect == "bash":
-        target_cwd = _posix_cwd(cwd)
+        target_cwd = _posix_cwd(call_cwd)
         target_workspace = _posix_cwd(boundary)
-        evidence = not (len(cwd) >= 2 and cwd[1] == ":")
+        evidence = not (len(call_cwd) >= 2 and call_cwd[1] == ":")
     else:
-        target_cwd = _windows_cwd(cwd)
-        target_workspace = _windows_cwd(boundary)
+        posix_powershell = dialect == "powershell"
+        target_cwd = _windows_cwd(call_cwd, allow_posix=posix_powershell)
+        target_workspace = _windows_cwd(boundary, allow_posix=posix_powershell)
 
     outcome = analyze_command(command, target_cwd, shell=dialect, local_evidence=evidence,
                               workspace_root=target_workspace)
@@ -314,11 +342,11 @@ def _shell_decision(tool: str, args: dict, cwd: str, workspace: str = "",
         # The shell/dialect combination itself was rejected. That is information about the call,
         # not a crash, and it is reported as such.
         findings.append(_judge_error(str(outcome.unavailable_reason)))
-        return _conclude(findings, (tool, args, cwd), auto_approve)
+        return _conclude(findings, (tool, args, call_cwd), auto_approve)
     findings.extend(dict(finding) for finding in outcome.findings)
     if dialect == "bash" and not evidence:
         findings.extend(_outside_workspace_tokens(command, boundary))
-    return _conclude(findings, (tool, args, cwd), auto_approve)
+    return _conclude(findings, (tool, args, call_cwd), auto_approve)
 
 
 #: Absolute POSIX tokens a bash command names, used only when disk evidence is unavailable.
@@ -455,10 +483,14 @@ def _fetch_decision(args: dict, auto_approve: bool = False) -> Decision:
     if not isinstance(url, str) or not url:
         return Decision("ask", CLEAN)
     heavy, host, alternative = _fetch_shape(url)
-    # 两种情况都要人确认：抓取会把远端内容送进模型上下文。等级区分的是"这地址会拿回多少"：
-    # 普通页面 `LOW`（值得知道），整页 HTML `MEDIUM`（关键操作：会灌进一大段无用内容）。
-    # 句子由 writers.py 的 `w_download_content` / `w_network_request` 生成，靠 `data.fetch_kind` 区分。
-    level, rule = ("MEDIUM", "download-content") if heavy else ("LOW", "network-request")
+    # 两档的分界不是"会返回多少 HTML"，而是"有没有更省的端点可给"。只有确实存在替代端点时，
+    # 才值得把注意力成本提到 MEDIUM；没有替代时，读者也无事可做，保持 LOW。
+    if heavy and alternative:
+        level, rule = "MEDIUM", "download-content"
+    elif heavy:
+        level, rule = "LOW", "download-content"
+    else:
+        level, rule = "LOW", "network-request"
     # `host` **两种情形都带上**：卡片要写"发到哪个站点"，那才是随参数变化的信息。
     data: dict[str, Any] = {"url": url, "fetch_kind": "heavy" if heavy else "page"}
     if host:

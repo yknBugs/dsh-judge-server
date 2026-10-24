@@ -181,6 +181,15 @@ REASON_TEXT = {
     "delayed_expansion_unsupported": "延迟展开的行为未知",
     "unresolved_delayed_expansion": "无法确定延迟展开后的取值",
     "missing_or_batch_variable": "无法确定批处理变量取值",
+    "unresolved_assignment": "赋值表达式的取值未知",
+    "unresolved_composition": "多段取值拼成的结果未知",
+    # —— 1.12/1.13 的运行时与信任边界
+    "formatted_timestamp": "取值来自格式化时间戳",
+    "hex_digest": "取值来自摘要输出",
+    "numeric_runtime": "取值来自数字计数或运算",
+    "trusted_script_state": "可信脚本执行后的状态未知",
+    "unresolved_append_target": "追加写入的目标未知",
+    "transfer_selection_unavailable": "传输的文件筛选结果未知",
     # —— 文件、传输与数据流
     "missing_source": "缺少来源",
     "missing_destination": "缺少目标",
@@ -522,6 +531,7 @@ PATH_BASIS_TEXT = {
     "lexical": "按字面拼接",
     "observed": "按磁盘实际",
     "evidence": "按文件内容",
+    "constrained_runtime": "按运行时值约束到目录",
 }
 
 
@@ -947,7 +957,7 @@ class Finding:
         objects = _join(self.data.get("objects"))
         kind = OBJECT_KIND_TEXT.get(_join(self.data.get("object_kind")), _join(self.data.get("object_kind")))
         if objects and kind:
-            return f"{objects} ({kind}) "
+            return f"{objects}（{kind}）"
         return objects or kind
 
     # —— 条件 ——
@@ -1134,6 +1144,8 @@ def w_read_outside_workspace(f: Finding) -> str:
     没有候选值时保持原来的短句 (`读取工作目录外的 /x。`) ，不硬套那个句式。
     """
     name = f.target or ""
+    scope = f.get("scope_root")
+    pattern = f.get("pattern")
     annotation = f.possible_annotation
     target = f" {name} " if name else ""
     tail = f" {name}" if name else ""
@@ -1147,7 +1159,13 @@ def w_read_outside_workspace(f: Finding) -> str:
         return f"读取的文件{target}不在当前工作区 {f.cwd} 内。"
     if f.tool:
         return f"{f.tool} 需要读取文件{target}。"
-    return f"读取工作目录外的{tail}。"
+    if pattern:
+        return f"读取工作目录外的 {pattern}。"
+    if scope:
+        return f"读取工作目录外 {scope} 下的文件。"
+    if tail:
+        return f"读取工作目录外的{tail}。"
+    return "读取工作目录外的文件。"
 
 
 def w_cwd_outside_workspace(f: Finding) -> str:
@@ -1163,7 +1181,7 @@ def w_cwd_outside_workspace(f: Finding) -> str:
     requested = f.get("requested")
     where = f"工作目录外的 {target}" if target else "工作目录外的目录"
     if isinstance(requested, str) and requested and requested != target:
-        return f"把会话工作目录切到{where} (写的是 {requested}) 。"
+        return f"把会话工作目录切到{where}（写的是 {requested}）。"
     return f"把会话工作目录切到{where}。"
 
 
@@ -1174,15 +1192,20 @@ def w_write_outside_workspace(f: Finding) -> str:
     同 `w_read_outside_workspace`：句尾用 `tail`，避免句号前多一个空格。
     """
     name = f.target or ""
+    scope = f.get("scope_root")
     target = f" {name} " if name else ""
     tail = f" {name}" if name else ""
     cwd = f.cwd
     if str(f.get("check")) == "edit":
         if cwd:
             return f"修改的文件{target}不在当前工作区 {cwd} 内。"
+        if scope:
+            return f"修改工作目录外 {scope} 下的文件。"
         return f"修改工作目录外的文件{tail}。"
     if cwd:
         return f"写入的文件{target}不在当前工作区 {cwd} 内。"
+    if scope:
+        return f"写入工作目录外 {scope} 下的文件。"
     return f"写入工作目录外的文件{tail}。"
 
 
@@ -1202,6 +1225,7 @@ def w_delete_inside_workspace(f: Finding) -> str:
     两遍，读着费劲；改成 `要删除的工作目录内的文件 X 不存在。`
     """
     name = f.target or ""
+    scope = f.get("scope_root")
     annotation = f.possible_annotation
     tail = f" {name}" if name else "文件"
     if f.target_missing and not annotation:
@@ -1211,6 +1235,8 @@ def w_delete_inside_workspace(f: Finding) -> str:
     t = "删除工作目录内的"
     if f.target:
         t += f"文件 {f.target}"
+    elif scope:
+        t += f" {scope} 下的文件"
     else:
         t += "文件"
     if f.evidence_text:
@@ -1225,6 +1251,7 @@ def w_delete_outside_workspace(f: Finding) -> str:
     写成 `要删除的工作目录外的文件 X 不存在。`
     """
     name = f.target or ""
+    scope = f.get("scope_root")
     annotation = f.possible_annotation
     tail = f" {name}" if name else "文件"
     if f.target_missing and not annotation:
@@ -1234,6 +1261,8 @@ def w_delete_outside_workspace(f: Finding) -> str:
     t = "删除工作目录外的"
     if f.target:
         t += f" {f.target}"
+    elif scope:
+        t += f" {scope} 下的文件"
     else:
         t += "文件"
     if f.evidence_text:
@@ -1406,7 +1435,7 @@ def w_filesystem_selection_delete(f: Finding) -> str:
     用"是"而不是"来自于从"——后者两个介词叠在一起，读着像病句。
     """
     if f.search_roots:
-        return f"删除的目标是从 {f.list(f.search_roots)} 中筛选的结果，因此无法确定。"
+        return f"删除的目标是从 {f.list(f.search_roots)} 中筛选的结果，因此无法确定具体目标。"
     return "删除的目标是筛选结果，因此无法确定将要删除的文件。"
 
 
@@ -1486,6 +1515,8 @@ def w_credentials_exposed(f: Finding) -> str:
         return f"密码以明文经{channel}交给了需要认证的程序。"
     if consumer:
         return f"密码以明文交给了 {consumer}。"
+    if f.variables:
+        return f"输出了包含凭据的变量 {f.variables}。"
     return "命令里以明文给出了密码。"
 
 
@@ -1532,6 +1563,17 @@ def w_uses_interpreter(f: Finding) -> str:
         return f"使用 {f.list(f.interpreters)} 执行代码。"
     else:
         return "使用其它解释器执行代码。"
+
+
+def w_trusted_script_invoked(f: Finding) -> str:
+    """trusted-script-invoked
+
+    只陈述"调用了这个可信脚本"。不补"未检查其内容"——那句话不随参数变化，也不给读者
+    任何判断依据；也不暗示脚本的效果已知。
+    """
+    if f.target:
+        return f"调用可信的脚本 {f.target}。"
+    return "调用可信的脚本。"
 
 
 def w_execution_content_unavailable(f: Finding) -> str:
@@ -1671,6 +1713,17 @@ def w_environment_modified(f: Finding) -> str:
     return "修改环境变量。"
 
 
+def w_environment_value_output(f: Finding) -> str:
+    """environment-value-output
+
+    输出的是**调用方提供的环境变量**，不是脚本自己赋的值，也不是凭据命中——凭据由
+    `credentials-exposed` 负责。句子只写这层事实，不追加“可能泄露”之类的推测。
+    """
+    if f.variables:
+        return f"输出调用方环境变量 {f.list(f.variables)} 的值。"
+    return "输出调用方提供的环境变量。"
+
+
 def w_readonly_assignment_failed(f: Finding) -> str:
     """readonly-assignment-failed"""
     if f.variables:
@@ -1709,6 +1762,10 @@ def w_service_change(f: Finding) -> str:
         if prefix and action.startswith(prefix):
             action = action[len(prefix):]
             break
+    # `new-service` 翻成“新建服务”；后面已经要接“系统服务或者计划任务”，
+    # 再保留“服务”会变成“新建服务系统服务…”。
+    if action.endswith("服务"):
+        action = action[:-2]
     if not action:
         action = "修改"
     if f.targets:  # 用复数键：service-change 给的是 targets 列表
@@ -2165,7 +2222,7 @@ def w_write_size(f: Finding) -> str:
     existing = f.get("existing_bytes")
     if existing is None:
         return f"将创建大小约为 {size} 字节的新文件 {f.target}。"
-    return f"将写入 {size} 字节到 {f.target} (原文件 {existing} 字节)。"
+    return f"将写入 {size} 字节到 {f.target}（原文件 {existing} 字节）。"
 
 
 def w_edit_size_change(f: Finding) -> str:
@@ -2177,9 +2234,14 @@ def w_edit_size_change(f: Finding) -> str:
     lines = f.get("lines", 0)
     if before is None or after is None:
         return f"编辑 {f.target}。"
-    sign = "+" if isinstance(delta, int) and delta >= 0 else ""
-    num_target = f"，本次替换 {occurrences} 处中的 1 处" if occurrences and occurrences > 1 else ""
-    return (f"{f.target}: {before} -> {after} 字节 ({sign}{delta} 字节)，"
+    if isinstance(delta, int):
+        change = "大小不变" if delta == 0 else (
+            f"{'增加' if delta > 0 else '减少'} {abs(delta)} 字节")
+        size_note = f"（{change}）"
+    else:
+        size_note = ""
+    num_target = f"，替换了 {occurrences} 处" if occurrences and occurrences > 1 else ""
+    return (f"编辑 {f.target} 后，文件从 {before} 字节变为 {after} 字节{size_note}，"
             f"共 {lines} 行{num_target}。")
 
 
@@ -2208,8 +2270,8 @@ def w_edit_target_unreadable(f: Finding) -> str:
     """
     why = f.get("reason") or "读取失败"
     if f.target:
-        return f"读取 {f.target} 失败 ({why})，无法确认本次修改的结果。"
-    return f"读取目标文件失败 ({why})，无法确认本次修改的结果。"
+        return f"读取 {f.target} 失败（{why}），无法确认本次修改的结果。"
+    return f"读取目标文件失败（{why}），无法确认本次修改的结果。"
 
 
 def w_write_target_unreadable(f: Finding) -> str:
@@ -2220,8 +2282,8 @@ def w_write_target_unreadable(f: Finding) -> str:
     """
     why = f.get("reason") or "查询失败"
     if f.target:
-        return f"查不到 {f.target} 的状态 ({why})，无法判断这次是新建还是覆盖。"
-    return f"查不到目标文件的状态 ({why})，无法判断这次是新建还是覆盖。"
+        return f"查不到 {f.target} 的状态（{why}），无法判断这次是新建还是覆盖。"
+    return f"查不到目标文件的状态（{why}），无法判断这次是新建还是覆盖。"
 
 
 def w_edit_empty_fragment(f: Finding) -> str:
@@ -2236,14 +2298,25 @@ def w_edit_fragment_missing(f: Finding) -> str:
     带上就叠成两个 (`…script.sh (30 字节)  中不存在`) 。
     """
     characters = f.get("characters")
-    where = f" ({characters} 字节)" if characters else ""
-    return f"待替换的片段在 {f.target}{where} 中不存在，本次编辑大概率失败。"
+    where = f"（{characters} 字节）" if characters else ""
+    return f"待替换的片段在 {f.target}{where}中不存在，本次编辑大概率失败。"
 
 
 def w_edit_fragment_ambiguous(f: Finding) -> str:
-    """edit-fragment-ambiguous"""
+    """edit-fragment-ambiguous
+
+    命中多处不是“歧义”：edit 工具会把所有命中一起替换。这里只提示“会全部替换”，
+    并说清一共替换多少处，不要写成“只替换其中一处”。
+    """
     occurrences = f.get("occurrences")
-    return f"待替换的片段在 {f.target} 中出现 {occurrences} 次。"
+    if f.target and occurrences:
+        return (f"待替换的片段在 {f.target} 中出现 {occurrences} 次，"
+                f"本次编辑会全部替换这 {occurrences} 处。")
+    if occurrences:
+        return f"待替换的片段出现 {occurrences} 次，本次编辑会全部替换这 {occurrences} 处。"
+    if f.target:
+        return f"待替换的片段在 {f.target} 中出现多次，本次编辑会全部替换。"
+    return "待替换的片段出现多次，本次编辑会全部替换。"
 
 
 def w_edit_no_change(f: Finding) -> str:
@@ -2299,6 +2372,7 @@ RULE_WRITERS: dict[str, Any] = {
     "obfuscated-payload": w_obfuscated_payload,
     # ── 执行 ──────────────────────────────────────────────────────────
     "uses-interpreter": w_uses_interpreter,
+    "trusted-script-invoked": w_trusted_script_invoked,
     "execution-content-unavailable": w_execution_content_unavailable,
     "privilege-escalation": w_privilege_escalation,
     "errors-suppressed": w_errors_suppressed,
@@ -2310,6 +2384,7 @@ RULE_WRITERS: dict[str, Any] = {
     "publish-risk": w_publish_risk,
     # ── 环境与系统 ───────────────────────────────────────────────────────
     "environment-modified": w_environment_modified,
+    "environment-value-output": w_environment_value_output,
     "readonly-assignment-failed": w_readonly_assignment_failed,
     "package-install": w_package_install,
     "package-change": w_package_change,

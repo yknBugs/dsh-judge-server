@@ -184,7 +184,7 @@ python server.py --analyzer ../python-command-inspector
 | `read` / `read_image` / `glob` / `grep` | 只检查触及范围和凭据类文件名，不解释内容 |
 | `write` / `edit` | 检查目标，并分析写入/修改后的内容 |
 | `working_directory` | 省略 `cd` 按零发现处理；`cd` 跳出工作区时 `[注意]` |
-| `web_fetch` | 普通页面 `[提示]`；可能返回大段 HTML 时 `[注意]`，并给出更省的同源端点 |
+| `web_fetch` | 普通页面 `[提示]`；可能返回大段 HTML 时 `[提示]`；只有存在更省的同源端点时才 `[注意]`，并写出端点 |
 | 未登记的工具名 | `ask`，说明判定器没有它的行为模型 |
 
 ### shell
@@ -211,7 +211,7 @@ python server.py --analyzer ../python-command-inspector
 - 目标在工作区外；
 - 目标是目录、不可读，或无法确认状态；
 - `write` 覆盖已有文件、写入字节数；
-- `edit` 目标不存在、不是 UTF-8、片段为空、片段找不到或出现多次、修改前后字节数变化。
+- `edit` 目标不存在、不是 UTF-8、片段为空、片段找不到、修改前后字节数变化；命中多处时会报告一条 LOW，并说明会全部替换这些命中。
 
 `write` 的正文和 `edit` 修改后的结果，如果扩展名/文件名/shebang 表明它是可执行或可查询的文本
 （shell、PowerShell、CMD、Python、JavaScript、SQL），会再送进分析器检查内容。其他文件按数据处理，

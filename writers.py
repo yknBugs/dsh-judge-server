@@ -1873,6 +1873,13 @@ def w_git_push(f: Finding) -> str:
     return "把提交推送到远端。"
 
 
+def w_git_commit(f: Finding) -> str:
+    """git-commit"""
+    if f.target:
+        return f"在仓库 {f.target} 创建本地 Git 提交。"
+    return "创建本地 Git 提交。"
+
+
 def w_git_config_modified(f: Finding) -> str:
     """git-config-modified"""
     scope = f"{f.scope}作用域的" if f.scope else ""
@@ -1881,7 +1888,18 @@ def w_git_config_modified(f: Finding) -> str:
 
 
 def w_git_history_rewrite(f: Finding) -> str:
-    """git-history-rewrite"""
+    """git-history-rewrite
+
+    分析器分本地与远端两种：本地是 `commit --amend` 或显式历史过滤，远端是强推/删除 ref。
+    两种说法不能混：`--amend` 说成“对远端做强制更新”会让读者以为要动远端。
+    """
+    scope = f.get("history_scope")
+    options = f.get("options") or []
+    repo = f"仓库 {f.target} " if f.target else "当前仓库"
+    if scope == "local":
+        if "--amend" in options:
+            return f"改写{repo}的最近一次本地提交。"
+        return f"改写{repo}的本地提交历史。"
     what = f" {f.refspecs} " if f.refspecs else "代码仓库"
     where = f"远端 {f.target} " if f.target else "远端"
     return f"对{where}的{what}做强制更新或删除。"
@@ -2404,6 +2422,7 @@ RULE_WRITERS: dict[str, Any] = {
     "security-policy-change": w_security_policy_change,
     "account-change": w_account_change,
     # ── Git ─────────────────────────────────────────────────────────
+    "git-commit": w_git_commit,
     "git-push": w_git_push,
     "git-config-modified": w_git_config_modified,
     "git-history-rewrite": w_git_history_rewrite,

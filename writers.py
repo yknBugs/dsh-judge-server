@@ -1234,12 +1234,15 @@ def w_delete_inside_workspace(f: Finding) -> str:
     name = f.target or ""
     scope = f.get("scope_root")
     annotation = f.possible_annotation
-    tail = f" {name}" if name else "文件"
     prefix = "可能" if f.get("possible") else ""
     if f.target_missing and not annotation:
-        return f"{prefix}要删除的工作目录内的文件{tail}不存在。"
+        if name:
+            return f"{prefix}要删除的工作目录内的文件 {name} 不存在。"
+        return f"{prefix}要删除的工作目录内的文件不存在。"
     if annotation:
-        return f"删除目标依赖于变量 {annotation} 且可能删除工作目录内的文件{tail}。"
+        if name:
+            return f"删除目标依赖于变量 {annotation} 且可能删除工作目录内的文件 {name}。"
+        return f"删除目标依赖于变量 {annotation} 且可能删除工作目录内的文件。"
     t = "可能删除工作目录内的" if f.get("possible") and not annotation else "删除工作目录内的"
     if f.target:
         t += f"文件 {f.target}"
@@ -1261,12 +1264,15 @@ def w_delete_outside_workspace(f: Finding) -> str:
     name = f.target or ""
     scope = f.get("scope_root")
     annotation = f.possible_annotation
-    tail = f" {name}" if name else "文件"
     prefix = "可能" if f.get("possible") else ""
     if f.target_missing and not annotation:
-        return f"{prefix}要删除的工作目录外的文件{tail}不存在。"
+        if name:
+            return f"{prefix}要删除的工作目录外的文件 {name} 不存在。"
+        return f"{prefix}要删除的工作目录外的文件不存在。"
     if annotation:
-        return f"删除目标依赖于变量 {annotation} 且可能删除工作目录外的文件{tail}。"
+        if name:
+            return f"删除目标依赖于变量 {annotation} 且可能删除工作目录外的文件 {name}。"
+        return f"删除目标依赖于变量 {annotation} 且可能删除工作目录外的文件。"
     t = "可能删除工作目录外的" if f.get("possible") and not annotation else "删除工作目录外的"
     if f.target:
         t += f" {f.target}"
@@ -2401,7 +2407,7 @@ def w_edit_fragment_missing(f: Finding) -> str:
     """
     characters = f.get("characters")
     where = f"（{characters} 字节）" if characters else ""
-    return f"待替换的片段在 {f.target}{where}中不存在，本次编辑大概率失败。"
+    return f"待替换的片段在 {f.target}{where} 中不存在，本次编辑大概率失败。"
 
 
 def w_edit_fragment_ambiguous(f: Finding) -> str:

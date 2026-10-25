@@ -1157,7 +1157,8 @@ def w_read_outside_workspace(f: Finding) -> str:
         return f"读取的目标文件依赖于变量 {annotation} {where}。"
     prefix = "可能" if f.get("possible") else ""
     if f.cwd:
-        return f"{prefix}读取的文件{target}不在当前工作区 {f.cwd} 内。"
+        possible = "可能" if f.get("possible") else ""
+        return f"读取的文件{target}{possible}不在当前工作区 {f.cwd} 内。"
     if f.tool:
         if f.get("possible"):
             return f"{f.tool} 可能需要读取文件{target}。"
@@ -1202,12 +1203,14 @@ def w_write_outside_workspace(f: Finding) -> str:
     prefix = "可能" if f.get("possible") else ""
     if str(f.get("check")) == "edit":
         if cwd:
-            return f"{prefix}修改的文件{target}不在当前工作区 {cwd} 内。"
+            possible = "可能" if f.get("possible") else ""
+            return f"修改的文件{target}{possible}不在当前工作区 {cwd} 内。"
         if scope:
             return f"{prefix}修改工作目录外 {scope} 下的文件。"
         return f"{prefix}修改工作目录外的文件{tail}。"
     if cwd:
-        return f"{prefix}写入的文件{target}不在当前工作区 {cwd} 内。"
+        possible = "可能" if f.get("possible") else ""
+        return f"写入的文件{target}{possible}不在当前工作区 {cwd} 内。"
     if scope:
         return f"{prefix}写入工作目录外 {scope} 下的文件。"
     return f"{prefix}写入工作目录外的文件{tail}。"

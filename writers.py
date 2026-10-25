@@ -1272,10 +1272,14 @@ def w_delete_outside_workspace(f: Finding) -> str:
 
 def w_delete_workspace_root(f: Finding) -> str:
     """delete-workspace-root"""
-    t = "删除目标"
-    if f.target:
-        t += f" {f.target} "
-    t += "包含当前工作目录本身"
+    if f.get("possible"):
+        where = f" {f.target}" if f.target else "某个位置"
+        t = f"删除目标可能是{where}，包含当前工作目录本身"
+    else:
+        t = "删除目标"
+        if f.target:
+            t += f" {f.target} "
+        t += "包含当前工作目录本身"
     if f.evidence_text:
         t += f"，{f.evidence_text}"
     else:
@@ -1285,10 +1289,14 @@ def w_delete_workspace_root(f: Finding) -> str:
 
 def w_delete_protected_root(f: Finding) -> str:
     """delete-protected-root"""
-    t = "删除目标"
-    if f.target:
-        t += f" {f.target} "
-    t += "包含关键系统目录"
+    if f.get("possible"):
+        where = f" {f.target}" if f.target else "某个位置"
+        t = f"删除目标可能是{where}，包含关键系统目录"
+    else:
+        t = "删除目标"
+        if f.target:
+            t += f" {f.target} "
+        t += "包含关键系统目录"
     if f.evidence_text:
         t += f"，{f.evidence_text}"
     else:
@@ -1411,6 +1419,8 @@ def w_write_variable_unresolved(f: Finding) -> str:
 def w_overwrite_existing_file(f: Finding) -> str:
     """overwrite-existing-file"""
     if f.target:
+        if f.get("possible"):
+            return f"可能会覆盖 {f.target} 中的内容。"
         return f"本次操作会覆盖 {f.target} 中的内容。"
     return "本次操作可能覆盖已经存在的文件。"
 
@@ -2519,7 +2529,13 @@ def render(finding: dict[str, Any]) -> str:
         if described:
             return f"{f.rule}: {described.rstrip('.')}"
         return f"未处理的规则名称: {f.rule}"
-    return writer(f)
+    line = writer(f)
+    # Analyzer 1.16 keeps a bounded set of possible working directories. Each
+    # surviving target gets its own finding with `possible: true`; the card must
+    # not present that target as a certainty.
+    if f.get("possible") is True and "可能" not in line:
+        line = "可能" + line
+    return line
 
 
 def known_writers() -> frozenset[str]:

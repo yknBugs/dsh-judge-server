@@ -1155,17 +1155,20 @@ def w_read_outside_workspace(f: Finding) -> str:
         where = f"且可能是在工作目录外的{tail}" if not f.cwd else (
             f"且可能不在当前工作区 {f.cwd} 内")
         return f"读取的目标文件依赖于变量 {annotation} {where}。"
+    prefix = "可能" if f.get("possible") else ""
     if f.cwd:
-        return f"读取的文件{target}不在当前工作区 {f.cwd} 内。"
+        return f"{prefix}读取的文件{target}不在当前工作区 {f.cwd} 内。"
     if f.tool:
+        if f.get("possible"):
+            return f"{f.tool} 可能需要读取文件{target}。"
         return f"{f.tool} 需要读取文件{target}。"
     if pattern:
-        return f"读取工作目录外的 {pattern}。"
+        return f"{prefix}读取工作目录外的 {pattern}。"
     if scope:
-        return f"读取工作目录外 {scope} 下的文件。"
+        return f"{prefix}读取工作目录外 {scope} 下的文件。"
     if tail:
-        return f"读取工作目录外的{tail}。"
-    return "读取工作目录外的文件。"
+        return f"{prefix}读取工作目录外的{tail}。"
+    return f"{prefix}读取工作目录外的文件。"
 
 
 def w_cwd_outside_workspace(f: Finding) -> str:
@@ -1196,17 +1199,18 @@ def w_write_outside_workspace(f: Finding) -> str:
     target = f" {name} " if name else ""
     tail = f" {name}" if name else ""
     cwd = f.cwd
+    prefix = "可能" if f.get("possible") else ""
     if str(f.get("check")) == "edit":
         if cwd:
-            return f"修改的文件{target}不在当前工作区 {cwd} 内。"
+            return f"{prefix}修改的文件{target}不在当前工作区 {cwd} 内。"
         if scope:
-            return f"修改工作目录外 {scope} 下的文件。"
-        return f"修改工作目录外的文件{tail}。"
+            return f"{prefix}修改工作目录外 {scope} 下的文件。"
+        return f"{prefix}修改工作目录外的文件{tail}。"
     if cwd:
-        return f"写入的文件{target}不在当前工作区 {cwd} 内。"
+        return f"{prefix}写入的文件{target}不在当前工作区 {cwd} 内。"
     if scope:
-        return f"写入工作目录外 {scope} 下的文件。"
-    return f"写入工作目录外的文件{tail}。"
+        return f"{prefix}写入工作目录外 {scope} 下的文件。"
+    return f"{prefix}写入工作目录外的文件{tail}。"
 
 
 def w_delete_inside_workspace(f: Finding) -> str:
@@ -1228,11 +1232,12 @@ def w_delete_inside_workspace(f: Finding) -> str:
     scope = f.get("scope_root")
     annotation = f.possible_annotation
     tail = f" {name}" if name else "文件"
+    prefix = "可能" if f.get("possible") else ""
     if f.target_missing and not annotation:
-        return f"要删除的工作目录内的文件{tail}不存在。"
+        return f"{prefix}要删除的工作目录内的文件{tail}不存在。"
     if annotation:
         return f"删除目标依赖于变量 {annotation} 且可能删除工作目录内的文件{tail}。"
-    t = "删除工作目录内的"
+    t = "可能删除工作目录内的" if f.get("possible") and not annotation else "删除工作目录内的"
     if f.target:
         t += f"文件 {f.target}"
     elif scope:
@@ -1254,11 +1259,12 @@ def w_delete_outside_workspace(f: Finding) -> str:
     scope = f.get("scope_root")
     annotation = f.possible_annotation
     tail = f" {name}" if name else "文件"
+    prefix = "可能" if f.get("possible") else ""
     if f.target_missing and not annotation:
-        return f"要删除的工作目录外的文件{tail}不存在。"
+        return f"{prefix}要删除的工作目录外的文件{tail}不存在。"
     if annotation:
         return f"删除目标依赖于变量 {annotation} 且可能删除工作目录外的文件{tail}。"
-    t = "删除工作目录外的"
+    t = "可能删除工作目录外的" if f.get("possible") and not annotation else "删除工作目录外的"
     if f.target:
         t += f" {f.target}"
     elif scope:
@@ -1317,9 +1323,10 @@ def w_delete_after_failed_assignment(f: Finding) -> str:
 
 def w_delete_target_missing(f: Finding) -> str:
     """delete-target-missing"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"要删除的目标 {f.target} 不存在。"
-    return "要删除的目标不存在。"
+        return f"{prefix}要删除的目标 {f.target} 不存在。"
+    return f"{prefix}要删除的目标不存在。"
 
 
 def _variable_reference(f: Finding) -> str:
@@ -1428,7 +1435,7 @@ def w_overwrite_existing_file(f: Finding) -> str:
 
 def w_permissions_too_broad(f: Finding) -> str:
     """permissions-too-broad"""
-    t = "将"
+    t = "可能将" if f.get("possible") else "将"
     if f.target:
         t += f" {f.target} 的"
     t += "权限设"
@@ -1468,6 +1475,10 @@ def w_credentials_read(f: Finding) -> str:
 
 def w_credentials_written(f: Finding) -> str:
     """credentials-written"""
+    if f.get("possible"):
+        if f.target:
+            return f"写入 {f.target} 的内容可能包含凭据。"
+        return "写入的内容可能包含凭据。"
     if f.target:
         return f"写入 {f.target} 的内容里疑似包含凭据。"
     return "写入的内容里疑似包含凭据。"
@@ -1521,13 +1532,22 @@ def w_credentials_exposed(f: Finding) -> str:
     consumer = str(f.get("consumer") or "").strip()
     channel = EXPOSURE_CHANNEL_TEXT.get(str(f.get("channel") or "").strip().casefold(), "")
     if channel and consumer:
+        if f.get("possible"):
+            return f"密码可能以明文经{channel}交给了 {consumer}。"
         return f"密码以明文经{channel}交给了 {consumer}。"
     if channel:
+        if f.get("possible"):
+            return f"密码可能以明文经{channel}交给了需要认证的程序。"
         return f"密码以明文经{channel}交给了需要认证的程序。"
     if consumer:
+        if f.get("possible"):
+            return f"密码可能以明文交给了 {consumer}。"
         return f"密码以明文交给了 {consumer}。"
     if f.variables:
-        return f"输出了包含凭据的变量 {f.variables}。"
+        prefix = "可能" if f.get("possible") else ""
+        return f"{prefix}输出了包含凭据的变量 {f.variables}。"
+    if f.get("possible"):
+        return "命令里可能以明文给出了密码。"
     return "命令里以明文给出了密码。"
 
 
@@ -1570,10 +1590,11 @@ def w_obfuscated_payload(f: Finding) -> str:
 
 def w_uses_interpreter(f: Finding) -> str:
     """uses-interpreter"""
+    prefix = "可能" if f.get("possible") else ""
     if f.interpreters:
-        return f"使用 {f.list(f.interpreters)} 执行代码。"
+        return f"{prefix}使用 {f.list(f.interpreters)} 执行代码。"
     else:
-        return "使用其它解释器执行代码。"
+        return f"{prefix}使用其它解释器执行代码。"
 
 
 def w_trusted_script_invoked(f: Finding) -> str:
@@ -1582,9 +1603,10 @@ def w_trusted_script_invoked(f: Finding) -> str:
     只陈述"调用了这个可信脚本"。不补"未检查其内容"——那句话不随参数变化，也不给读者
     任何判断依据；也不暗示脚本的效果已知。
     """
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"调用可信的脚本 {f.target}。"
-    return "调用可信的脚本。"
+        return f"{prefix}调用可信的脚本 {f.target}。"
+    return f"{prefix}调用可信的脚本。"
 
 
 def w_execution_content_unavailable(f: Finding) -> str:
@@ -1613,17 +1635,17 @@ def w_execution_content_unavailable(f: Finding) -> str:
 
 def w_privilege_escalation(f: Finding) -> str:
     """privilege-escalation"""
-    return "包含提权操作。"
+    return "可能包含提权操作。" if f.get("possible") else "包含提权操作。"
 
 
 def w_errors_suppressed(f: Finding) -> str:
     """errors-suppressed"""
-    return "错误消息被屏蔽。"
+    return "错误消息可能被屏蔽。" if f.get("possible") else "错误消息被屏蔽。"
 
 
 def w_runtime_code_loading(f: Finding) -> str:
     """runtime-code-loading"""
-    return "包含动态执行的代码。"
+    return "可能包含动态执行的代码。" if f.get("possible") else "包含动态执行的代码。"
 
 
 def w_network_request(f: Finding) -> str:
@@ -1636,14 +1658,15 @@ def w_network_request(f: Finding) -> str:
     不含对象的说法 (`可能会发起网络请求。`) ——那句话只说"会联网"，因为除了这个确实一无所知。
     """
     target = f.list(f.get("destinations")) or f.get("url") or ""
+    prefix = "可能" if f.get("possible") else ""
     if f.get("fetch_kind"):
         host = f.get("host")
         if host:
-            return f"向 {host} 发送网络请求。"
+            return f"{prefix}向 {host} 发送网络请求。"
         if target:
-            return f"向 {target} 发送网络请求。"
+            return f"{prefix}向 {target} 发送网络请求。"
     if target:
-        return f"向 {target} 发起网络请求。"
+        return f"{prefix}向 {target} 发起网络请求。"
     return "可能会发起网络请求。"
 
 
@@ -1668,7 +1691,8 @@ def w_download_content(f: Finding) -> str:
             return f"{target} 可能返回大段 HTML。"
         return "该地址可能返回大段 HTML。"
     if target:
-        return f"从 {target} 下载内容。"
+        prefix = "可能" if f.get("possible") else ""
+        return f"{prefix}从 {target} 下载内容。"
     return "可能从网络下载内容。"
 
 
@@ -1712,6 +1736,8 @@ def w_credentials_sent(f: Finding) -> str:
 
 def w_publish_risk(f: Finding) -> str:
     """publish-risk"""
+    if f.get("possible"):
+        return "可能会把本地文件推送到远端。"
     if f.destinations:
         if f.publish_note:
             return f"即将推送本地文件{f.publish_note}。"
@@ -1722,8 +1748,10 @@ def w_publish_risk(f: Finding) -> str:
 def w_environment_modified(f: Finding) -> str:
     """environment-modified"""
     if f.variables:
+        if f.get("possible"):
+            return f"环境变量 {f.list(f.variables)} 可能被修改。"
         return f"环境变量 {f.list(f.variables)} 被修改。"
-    return "修改环境变量。"
+    return "可能修改环境变量。" if f.get("possible") else "修改环境变量。"
 
 
 def w_environment_value_output(f: Finding) -> str:
@@ -1732,9 +1760,10 @@ def w_environment_value_output(f: Finding) -> str:
     输出的是**调用方提供的环境变量**，不是脚本自己赋的值，也不是凭据命中——凭据由
     `credentials-exposed` 负责。句子只写这层事实，不追加“可能泄露”之类的推测。
     """
+    prefix = "可能" if f.get("possible") else ""
     if f.variables:
-        return f"输出调用方环境变量 {f.list(f.variables)} 的值。"
-    return "输出调用方提供的环境变量。"
+        return f"{prefix}输出调用方环境变量 {f.list(f.variables)} 的值。"
+    return f"{prefix}输出调用方提供的环境变量。"
 
 
 def w_readonly_assignment_failed(f: Finding) -> str:
@@ -1746,21 +1775,23 @@ def w_readonly_assignment_failed(f: Finding) -> str:
 
 def w_package_install(f: Finding) -> str:
     """package-install"""
+    prefix = "可能" if f.get("possible") else ""
     if f.package_note:
-        return f"安装 {f.package_note}。"
-    return "安装新的软件包。"
+        return f"{prefix}安装 {f.package_note}。"
+    return f"{prefix}安装新的软件包。"
 
 
 def w_package_change(f: Finding) -> str:
     """package-change"""
+    prefix = "可能" if f.get("possible") else ""
     if f.package_note:
-        return f"卸载或改写已安装的 {f.package_note}。"
-    return "卸载或改写已安装的软件包。"
+        return f"{prefix}卸载或改写已安装的 {f.package_note}。"
+    return f"{prefix}卸载或改写已安装的软件包。"
 
 
 def w_system_settings_change(f: Finding) -> str:
     """system-settings-change"""
-    return "修改系统设置。"
+    return "可能修改系统设置。" if f.get("possible") else "修改系统设置。"
 
 
 def w_service_change(f: Finding) -> str:
@@ -1781,123 +1812,140 @@ def w_service_change(f: Finding) -> str:
         action = action[:-2]
     if not action:
         action = "修改"
+    prefix = "可能" if f.get("possible") else ""
     if f.targets:  # 用复数键：service-change 给的是 targets 列表
-        return f"{action}系统服务或者计划任务 {f.targets}。"
-    return f"{action}系统服务或者计划任务。"
+        return f"{prefix}{action}系统服务或者计划任务 {f.targets}。"
+    return f"{prefix}{action}系统服务或者计划任务。"
 
 
 def w_force_process_termination(f: Finding) -> str:
     """force-process-termination"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"强制终止进程 {f.target}。"
-    return "强制终止进程。"
+        return f"{prefix}强制终止进程 {f.target}。"
+    return f"{prefix}强制终止进程。"
 
 
 def w_machine_power_change(f: Finding) -> str:
     """machine-power-change"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"包含关机或重启操作 {f.target}。"
-    return "包含关机或重启操作。"
+        return f"{prefix}包含关机或重启操作 {f.target}。"
+    return f"{prefix}包含关机或重启操作。"
 
 
 def w_raw_device_read(f: Finding) -> str:
     """raw-device-read"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"直接读取块设备 {f.target}。"
-    return "直接读取块设备。"
+        return f"{prefix}直接读取块设备 {f.target}。"
+    return f"{prefix}直接读取块设备。"
 
 
 def w_raw_device_write(f: Finding) -> str:
     """raw-device-write"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"直接向块设备 {f.target} 上写入数据。"
+        return f"{prefix}直接向块设备 {f.target} 上写入数据。"
     else:
-        return "直接往块设备上写入数据。"
+        return f"{prefix}直接往块设备上写入数据。"
 
 
 def w_unmount_drive(f: Finding) -> str:
     """unmount-drive"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"卸载文件系统 {f.target}。"
-    return "卸载文件系统。"
+        return f"{prefix}卸载文件系统 {f.target}。"
+    return f"{prefix}卸载文件系统。"
 
 
 def w_docker_change(f: Finding) -> str:
     """docker-change"""
     action = f.action or "修改"
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"{action}容器资源 {f.target}。"
-    return f"{action}容器资源。"
+        return f"{prefix}{action}容器资源 {f.target}。"
+    return f"{prefix}{action}容器资源。"
 
 
 def w_volume_format(f: Finding) -> str:
     """volume-format"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"格式化卷 {f.target}，该卷上的全部数据会被清空。"
-    return "格式化卷，该卷上的全部数据会被清空。"
+        return f"{prefix}格式化卷 {f.target}，该卷上的全部数据会被清空。"
+    return f"{prefix}格式化卷，该卷上的全部数据会被清空。"
 
 
 def w_backup_delete(f: Finding) -> str:
     """backup-delete"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"删除卷 {f.target} 的卷影副本，回滚与恢复的依据随之消失。"
-    return "删除卷影副本，回滚与恢复的依据随之消失。"
+        return f"{prefix}删除卷 {f.target} 的卷影副本，回滚与恢复的依据随之消失。"
+    return f"{prefix}删除卷影副本，回滚与恢复的依据随之消失。"
 
 
 def w_free_space_wipe(f: Finding) -> str:
     """free-space-wipe"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"擦除卷 {f.target} 的空闲空间，被删的数据无法恢复。"
-    return "擦除磁盘空闲空间，被删的数据无法恢复。"
+        return f"{prefix}擦除卷 {f.target} 的空闲空间，被删的数据无法恢复。"
+    return f"{prefix}擦除磁盘空闲空间，被删的数据无法恢复。"
 
 
 def w_event_log_clear(f: Finding) -> str:
     """event-log-clear"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"清除事件日志 {f.target}。"
-    return "清除事件日志。"
+        return f"{prefix}清除事件日志 {f.target}。"
+    return f"{prefix}清除事件日志。"
 
 
 def w_registry_change(f: Finding) -> str:
     """registry-change"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"修改注册表项 {f.target}。"
-    return "修改注册表。"
+        return f"{prefix}修改注册表项 {f.target}。"
+    return f"{prefix}修改注册表。"
 
 
 def w_security_policy_change(f: Finding) -> str:
     """security-policy-change"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"修改安全策略 {f.target}。"
-    return "修改安全策略。"
+        return f"{prefix}修改安全策略 {f.target}。"
+    return f"{prefix}修改安全策略。"
 
 
 def w_account_change(f: Finding) -> str:
     """account-change"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"创建或修改账户 {f.target}。"
-    return "创建或修改账户。"
+        return f"{prefix}创建或修改账户 {f.target}。"
+    return f"{prefix}创建或修改账户。"
 
 
 def w_git_push(f: Finding) -> str:
     """git-push"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"把提交推送到远端 {f.target}。"
-    return "把提交推送到远端。"
+        return f"{prefix}把提交推送到远端 {f.target}。"
+    return f"{prefix}把提交推送到远端。"
 
 
 def w_git_commit(f: Finding) -> str:
     """git-commit"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"在仓库 {f.target} 创建本地 Git 提交。"
-    return "创建本地 Git 提交。"
+        return f"{prefix}在仓库 {f.target} 创建本地 Git 提交。"
+    return f"{prefix}创建本地 Git 提交。"
 
 
 def w_git_config_modified(f: Finding) -> str:
     """git-config-modified"""
+    prefix = "可能" if f.get("possible") else ""
     scope = f"{f.scope}作用域的" if f.scope else ""
     keys = f"配置项 {f.keys}" if f.keys else " Git 配置"
-    return f"{f.action or '修改'}了{scope}{keys}。"
+    return f"{prefix}{f.action or '修改'}了{scope}{keys}。"
 
 
 def w_git_history_rewrite(f: Finding) -> str:
@@ -1906,21 +1954,22 @@ def w_git_history_rewrite(f: Finding) -> str:
     分析器分本地与远端两种：本地是 `commit --amend` 或显式历史过滤，远端是强推/删除 ref。
     两种说法不能混：`--amend` 说成“对远端做强制更新”会让读者以为要动远端。
     """
+    prefix = "可能" if f.get("possible") else ""
     scope = f.get("history_scope")
     options = f.get("options") or []
     repo = f"仓库 {f.target} " if f.target else "当前仓库"
     if scope == "local":
         if "--amend" in options:
-            return f"改写{repo}的最近一次本地提交。"
-        return f"改写{repo}的本地提交历史。"
+            return f"{prefix}改写{repo}的最近一次本地提交。"
+        return f"{prefix}改写{repo}的本地提交历史。"
     what = f" {f.refspecs} " if f.refspecs else "代码仓库"
     where = f"远端 {f.target} " if f.target else "远端"
-    return f"对{where}的{what}做强制更新或删除。"
+    return f"{prefix}对{where}的{what}做强制更新或删除。"
 
 
 def w_git_reset_state_unavailable(f: Finding) -> str:
     """git-reset-state-unavailable"""
-    return "强制重置当前仓库的状态。"
+    return "可能强制重置当前仓库的状态。" if f.get("possible") else "强制重置当前仓库的状态。"
 
 
 def w_modify_analyzer_config(f: Finding) -> str:
@@ -1932,9 +1981,10 @@ def w_modify_analyzer_config(f: Finding) -> str:
 
 def w_modify_sensitive_file(f: Finding) -> str:
     """modify-sensitive-file"""
+    prefix = "可能" if f.get("possible") else ""
     if f.target:
-        return f"修改敏感文件 {f.target}。"
-    return "修改敏感文件。"
+        return f"{prefix}修改敏感文件 {f.target}。"
+    return f"{prefix}修改敏感文件。"
 
 
 def w_sql_unresolved(f: Finding) -> str:
@@ -1951,7 +2001,8 @@ def w_sql_row_change(f: Finding) -> str:
     subject = f.sql_parts or "数据行"
     action = f.action or "修改"
     index = f"第 {f.statement_index} 条 SQL 语句" if f.statement_index else "有 SQL 语句"
-    return f"{index}{action}了 {subject}{f.where_note or ''}。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{index}{prefix}{action}了 {subject}{f.where_note or ''}。"
 
 
 def w_sql_schema_change(f: Finding) -> str:
@@ -1959,7 +2010,8 @@ def w_sql_schema_change(f: Finding) -> str:
     subject = f.sql_parts or "表结构"
     action = f.action or "变更"
     index = f"第 {f.statement_index} 条 SQL 语句" if f.statement_index else "有 SQL 语句"
-    return f"{index}{action}了 {subject}。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{index}{prefix}{action}了 {subject}。"
 
 
 def w_sql_truncate(f: Finding) -> str:
@@ -1967,7 +2019,8 @@ def w_sql_truncate(f: Finding) -> str:
     subject = f.sql_parts or "表"
     action = f.action or "截断"
     index = f"第 {f.statement_index} 条 SQL 语句" if f.statement_index else "有 SQL 语句"
-    return f"{index}{action}了 {subject}，表内数据会全部消失。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{index}{prefix}{action}了 {subject}，表内数据会全部消失。"
 
 
 def w_sql_remove_schema(f: Finding) -> str:
@@ -1975,7 +2028,8 @@ def w_sql_remove_schema(f: Finding) -> str:
     subject = f.sql_parts or "结构对象"
     action = f.action or "删除"
     index = f"第 {f.statement_index} 条 SQL 语句" if f.statement_index else "有 SQL 语句"
-    return f"{index}{action}了 {subject}，依赖它的查询会失效。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{index}{prefix}{action}了 {subject}，依赖它的查询会失效。"
 
 
 def w_sql_privilege_change(f: Finding) -> str:
@@ -1985,7 +2039,8 @@ def w_sql_privilege_change(f: Finding) -> str:
     subject = f.sql_parts or ""
     index = f"第 {f.statement_index} 条 SQL 语句" if f.statement_index else "有 SQL 语句"
     where = f"，对象是 {subject}" if subject else ""
-    return f"{index}把 {what} 权限授予了 {who}{where}。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{index}{prefix}把 {what} 权限授予了 {who}{where}。"
 
 
 def w_sql_create_identity(f: Finding) -> str:
@@ -1993,7 +2048,8 @@ def w_sql_create_identity(f: Finding) -> str:
     subject = f.sql_parts or "数据库身份"
     action = f.action or "创建"
     index = f"第 {f.statement_index} 条 SQL 语句" if f.statement_index else "有 SQL 语句"
-    return f"{index}{action}了 {subject}。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{index}{prefix}{action}了 {subject}。"
 
 
 def w_sql_drop_object(f: Finding) -> str:
@@ -2001,7 +2057,8 @@ def w_sql_drop_object(f: Finding) -> str:
     subject = f.sql_parts or "数据库对象"
     action = f.action or "删除"
     index = f"第 {f.statement_index} 条 SQL 语句" if f.statement_index else "有 SQL 语句"
-    return f"{index}{action}了 {subject}，其中的数据一并消失。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{index}{prefix}{action}了 {subject}，其中的数据一并消失。"
 
 
 def w_unknown_command(f: Finding) -> str:
@@ -2037,13 +2094,20 @@ def w_unknown_command(f: Finding) -> str:
 
 def w_tool_invoked(f: Finding) -> str:
     """tool-invoked"""
+    possible = f.get("possible") is True
     if f.tool_name and f.tool_category_text:
+        if possible:
+            return f"{f.tool_category_text} {f.tool_name} 可能被调用。"
         return f"{f.tool_category_text} {f.tool_name} 被调用。"
     if f.tool_name:
+        if possible:
+            return f"{f.tool_name} 可能被调用。"
         return f"{f.tool_name} 被调用。"
     if f.tool_category_text:
+        if possible:
+            return f"某个{f.tool_category_text}可能被调用。"
         return f"某个{f.tool_category_text}被调用。"
-    return "调用了未知软件。"
+    return "可能调用了未知软件。" if possible else "调用了未知软件。"
 
 
 def w_unknown_option(f: Finding) -> str:
@@ -2145,11 +2209,12 @@ def _path_facts(f: Finding) -> tuple[str, str]:
 
 def w_command_via_path(f: Finding) -> str:
     """command-via-path"""
+    prefix = "可能" if f.get("possible") else ""
     tool = "某个命令"
     if f.tool or f.command:
         tool = f" {f.tool or f.command}"
     path_type, status = _path_facts(f)
-    head = f"用{path_type}调用{tool}"
+    head = f"{prefix}用{path_type}调用{tool}"
     if f.target and f.target != f.command:
         return f"{head}，即 {f.target}{status}。"
     return f"{head}{status}。"
@@ -2157,11 +2222,12 @@ def w_command_via_path(f: Finding) -> str:
 
 def w_executable_via_path(f: Finding) -> str:
     """executable-via-path"""
+    prefix = "可能" if f.get("possible") else ""
     name = "某个可执行文件"
     if f.tool or f.command:
         name = f" {f.tool or f.command}"
     path_type, status = _path_facts(f)
-    head = f"用{path_type}运行{name}"
+    head = f"{prefix}用{path_type}运行{name}"
     if f.target and f.target != f.command:
         return f"{head}，即 {f.target}{status}。"
     return f"{head}{status}。"
@@ -2185,7 +2251,8 @@ def w_execute_target_missing(f: Finding) -> str:
         # 路径与"不存在"之间**要有空格**：不加会粘成 `absent.ps1不存在`，
         # 中文和拉丁路径挤在一起读不出边界。
         target = f" {f.target or f.command} "
-    return f"要运行的{target}不存在。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{prefix}要运行的{target}不存在。"
 
 
 def w_execute_target_not_executable(f: Finding) -> str:
@@ -2193,7 +2260,8 @@ def w_execute_target_not_executable(f: Finding) -> str:
     target = "目标文件"
     if f.target or f.command:
         target = f" {f.target or f.command} "
-    return f"试图运行的{target}不是可执行文件。"
+    prefix = "可能" if f.get("possible") else ""
+    return f"{prefix}试图运行的{target}不是可执行文件。"
 
 
 def w_file_operation_unresolved(f: Finding) -> str:
@@ -2517,6 +2585,10 @@ def render(finding: dict[str, Any]) -> str:
 
     找不到文案时依次退到：分析器的英文说明、再退到一句"两边都没说明"。无论退到哪一层，
     规则名都会保留，方便你去查。
+
+    `possible` 不在这一层统一加前缀。不同规则的句子结构不同：动作句加“可能”自然，
+    而“无法判断…”本身就是不确定陈述，再加“可能”会变成双重 hedge。各 writer 自己
+    决定是否、以及在句子的哪个位置表达这个限定。
     """
     f = Finding(
         rule=str(finding.get("rule", "")),
@@ -2532,15 +2604,7 @@ def render(finding: dict[str, Any]) -> str:
         if described:
             return f"{f.rule}: {described.rstrip('.')}"
         return f"未处理的规则名称: {f.rule}"
-    line = writer(f)
-    # Analyzer 1.16 keeps a bounded set of possible working directories. Each
-    # surviving target gets its own finding with `possible: true`; the card must
-    # not present that target as a certainty. Sentences that already say
-    # "无法确定" are uncertainty notices, not actions: prefixing them produces
-    # "可能在列出目录时…无法确定…" and doubles the hedge.
-    if f.get("possible") is True and "可能" not in line and "无法确定" not in line:
-        line = "可能" + line
-    return line
+    return writer(f)
 
 
 def known_writers() -> frozenset[str]:

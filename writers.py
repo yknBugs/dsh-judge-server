@@ -1275,11 +1275,10 @@ def w_delete_workspace_root(f: Finding) -> str:
     if f.get("possible"):
         where = f" {f.target}" if f.target else "某个位置"
         t = f"删除目标可能是{where}，包含当前工作目录本身"
+    elif f.target:
+        t = f"删除目标是当前工作目录 {f.target}"
     else:
-        t = "删除目标"
-        if f.target:
-            t += f" {f.target} "
-        t += "包含当前工作目录本身"
+        t = "删除目标是当前工作目录"
     if f.evidence_text:
         t += f"，{f.evidence_text}"
     else:
@@ -1292,11 +1291,13 @@ def w_delete_protected_root(f: Finding) -> str:
     if f.get("possible"):
         where = f" {f.target}" if f.target else "某个位置"
         t = f"删除目标可能是{where}，包含关键系统目录"
+    elif f.target and (f.target in {"/", "\\"} or
+                       (len(f.target) == 3 and f.target[1] == ":" and f.target[2] in "/\\")):
+        t = f"删除目标是根目录 {f.target}，包含关键系统目录"
+    elif f.target:
+        t = f"删除目标 {f.target} 包含关键系统目录"
     else:
-        t = "删除目标"
-        if f.target:
-            t += f" {f.target} "
-        t += "包含关键系统目录"
+        t = "删除目标包含关键系统目录"
     if f.evidence_text:
         t += f"，{f.evidence_text}"
     else:
@@ -1712,7 +1713,9 @@ def w_credentials_sent(f: Finding) -> str:
 def w_publish_risk(f: Finding) -> str:
     """publish-risk"""
     if f.destinations:
-        return f"即将推送本地文件{f.publish_note}。"
+        if f.publish_note:
+            return f"即将推送本地文件{f.publish_note}。"
+        return "即将把本地文件推送到远端。"
     return "把本地文件推送到远端。"
 
 
@@ -2532,8 +2535,10 @@ def render(finding: dict[str, Any]) -> str:
     line = writer(f)
     # Analyzer 1.16 keeps a bounded set of possible working directories. Each
     # surviving target gets its own finding with `possible: true`; the card must
-    # not present that target as a certainty.
-    if f.get("possible") is True and "可能" not in line:
+    # not present that target as a certainty. Sentences that already say
+    # "无法确定" are uncertainty notices, not actions: prefixing them produces
+    # "可能在列出目录时…无法确定…" and doubles the hedge.
+    if f.get("possible") is True and "可能" not in line and "无法确定" not in line:
         line = "可能" + line
     return line
 
